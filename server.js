@@ -3,9 +3,11 @@ import express from "express";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import dns from "node:dns";
+import cors from "cors";
+import { v2 as cloudinary } from 'cloudinary'
+import multer from "multer";
 
 import Post from "./model/post.js";
-import User from "./model/user.js";
 
 dotenv.config();
 
@@ -14,6 +16,35 @@ dns.setServers(["1.1.1.1", "1.0.0.1"]);
 const app = express();
 
 app.use(express.json());
+app.use(cors({ origin: "https://week11-project-ashy.vercel.app" }));
+
+const uploadPostImage = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+}).single("image");
+
+const parsePostImage = (req, res, next) => {
+  uploadPostImage(req, res, (error) => {
+    if (!error) {
+      return next();
+    }
+
+    if (error instanceof multer.MulterError) {
+      return res.status(400).json({ message: error.message });
+    }
+
+    console.error("Failed to process post image:", error);
+    return res.status(500).json({ message: "Failed to process image upload" });
+  });
+};
+
+cloudinary.config({ 
+  secure: true,
+  cloud_name: process.env.cloud_name, 
+  api_key: process.env.api_key, 
+  api_secret: process.env.api_secret
+});
+
 
 
 app.get("/", (req, res) => {
@@ -21,58 +52,66 @@ app.get("/", (req, res) => {
 });
 
 // Create a user
-app.post("/users", async (req, res) => {
-  try {
-    const { name, email } = req.body;
 
-    const user = await User.create({ name, email });
+// app.post("/users", async (req, res) => {
+//   try {
+//     const { name, email } = req.body;
 
-    res.status(201).json({
-      message: "User created successfully",
-      user,
-    });
-  } catch (error) {
-    if (error.code === 11000) {
-      return res.status(409).json({
-        message: "Email already exists",
-      });
-    }
+//     const user = await User.create({ name, email });
 
-    if (error.name === "ValidationError") {
-      return res.status(400).json({
-        message: error.message,
-      });
-    }
+//     res.status(201).json({
+//       message: "User created successfully",
+//       user,
+//     });
+//   } catch (error) {
+//     if (error.code === 11000) {
+//       return res.status(409).json({
+//         message: "Email already exists",
+//       });
+//     }
 
-    res.status(500).json({
-      message: "Failed to create user",
-    });
-  }
-});
+//     if (error.name === "ValidationError") {
+//       return res.status(400).json({
+//         message: error.message,
+//       });
+//     }
+
+//     res.status(500).json({
+//       message: "Failed to create user",
+//     });
+//   }
+// });
+
+
 
 // Create a post
-app.post("/posts", async (req, res) => {
+app.post("/posts", parsePostImage, async (req, res) => {
   try {
-    const { title, content, authorId } = req.body;
+    const { title, content } = req.body;
+    const imageUrl = req.file
+      ? await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            { folder: "blog_images" },
+            (error, result) => {
+              if (error) {
+                return reject(error);
+              }
 
-    if (!mongoose.isValidObjectId(authorId)) {
-      return res.status(400).json({
-        message: "A valid authorId is required",
-      });
-    }
+              if (!result?.secure_url) {
+                return reject(new Error("Cloudinary did not return a secure URL"));
+              }
 
-    const author = await User.findById(authorId);
-
-    if (!author) {
-      return res.status(404).json({
-        message: "Author not found",
-      });
-    }
+              resolve(result.secure_url);
+            }
+          );
+          uploadStream.end(req.file.buffer);
+        })
+      : undefined;
 
     const post = await Post.create({
       title,
       content,
-      authorId,
+      image: imageUrl,
     });
 
     res.status(201).json({
@@ -86,6 +125,7 @@ app.post("/posts", async (req, res) => {
       });
     }
 
+    console.error("Failed to create post:", error);
     res.status(500).json({
       message: "Failed to create post",
     });
@@ -96,9 +136,8 @@ app.post("/posts", async (req, res) => {
 app.get("/posts", async (req, res) => {
   try {
     const posts = await Post.find()
-      .populate("authorId", "name email")
-      .sort({ createdAt: -1 });
-
+     
+     
     res.status(200).json({
       count: posts.length,
       posts,
@@ -114,7 +153,7 @@ app.get("/posts", async (req, res) => {
 app.get("/posts/recent", async (req, res) => {
   try {
     const posts = await Post.find()
-      .populate("authorId", "name email")
+      .populate( "name email")
       .sort({ createdAt: -1 })
       .limit(3);
 

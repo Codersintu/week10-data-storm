@@ -3,6 +3,10 @@ import mongoose from "mongoose";
 
 const postSchema = new mongoose.Schema(
   {
+    image:{
+      type: String,
+      required: false,
+    },
     title: {
       type: String,
       required: true,
@@ -12,12 +16,7 @@ const postSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-    },
-    authorId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
+    }
   },
   {
     timestamps: true,
